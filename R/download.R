@@ -35,6 +35,7 @@
 #'     GDCdownload(acc.gbm, method = "api", directory = "example", chunks.per.download = 50)
 #' }
 #' @return Shows the output from the GDC transfer tools
+#' @importFrom  BiocParallel bplapply MulticoreParam
 GDCdownload <- function(query,
                         token = NULL,
                         method = "api",
@@ -101,6 +102,7 @@ GDCdownload <- function(query,
             }
         }, warning = function(w) {
         }, error = function(e) {
+            message("Error")
         }, finally = {
             # moving the file to make it more organized
             message("Moving files to ", destdir)
