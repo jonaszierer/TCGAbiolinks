@@ -186,7 +186,7 @@ move <- function(from, to) {
 
 getProjectSummary <- function(project, legacy = FALSE){
     baseURL <- ifelse(legacy,"https://gdc-api.nci.nih.gov/legacy/projects/","https://gdc-api.nci.nih.gov/projects/")
-    url <- paste0(baseURL, project,"?expand=summary,summary.data_categories&pretty=true")
+    url <- paste0(baseURL, project,"?expand=summary.data_categories&pretty=true")
     return(fromJSON(url,simplifyDataFrame = TRUE)$data$summary)
 }
 
