@@ -76,6 +76,7 @@
 #'                   barcode = c("TCGA-OR-A5LR-01A-11D-A29H-01"))
 #' @return A data frame with the results and the parameters used
 #' @importFrom  jsonlite fromJSON
+#' @import GenomicDataCommons
 #' @importFrom knitr kable
 #' @importFrom httr timeout
 GDCquery <- function(project,
@@ -143,38 +144,57 @@ GDCquery <- function(project,
 
     results <- NULL
     print.header("Accessing GDC. This might take a while...","subsection")
-    for(proj in project){
-        url <- getGDCquery(project = proj,
-                           data.category = data.category,
-                           data.type = data.type,
-                           legacy = legacy)
-        message("ooo Project: ", proj)
-        json  <- tryCatch(
-            getURL(url,fromJSON,timeout(600),simplifyDataFrame = TRUE),
-            error = function(e) {
-                fromJSON(content(getURL(url,GET,timeout(600)), as = "text", encoding = "UTF-8"), simplifyDataFrame = TRUE)
-            }
-        )
-        json$data$hits$acl <- NULL
-        json$data$hits$project <- proj
-        if("analysis" %in% colnames(json$data$hits)){
-            if(is.data.frame(json$data$hits$analysis)){
-                analysis <- json$data$hits$analysis
-                colnames(analysis)[2:ncol(analysis)] <- paste0("analysis_", colnames(analysis)[2:ncol(analysis)])
-                json$data$hits$analysis <- NULL
-                json$data$hits <- cbind(json$data$hits, analysis)
-            }
-        }
-        if("center" %in% colnames(json$data$hits)){
-            if(is.data.frame(json$data$hits$center)){
-                center <- json$data$hits$center
-                colnames(center)[2:ncol(center)] <- paste0("center_", colnames(center)[2:ncol(center)])
-                json$data$hits$center <- NULL
-                json$data$hits <- cbind(json$data$hits, center)
-            }
-        }
-        results <- rbind(results,json$data$hits,make.row.names = FALSE)
+    expands <- c("cases.samples.portions.analytes.aliquots",
+                 "cases.project",
+                 "cases.demographic",
+                 "cases",
+                 "analysis",
+                 "center","analysis",
+                 "cases.demographic")
+    results <- files(legacy = legacy) %>%
+        expand(expands)
+    if(!is.na(data.type)){
+        results <- results %>% GenomicDataCommons::filter( ~ cases.project.project_id %in% project &
+                                                               data_category == data.category &
+                                                               data_type ==  data.type)  %>%
+            results_all() %>% as.data.frame()
+    } else {
+        results <- results %>% GenomicDataCommons::filter( ~ cases.project.project_id %in% project &
+                                                               data_category == data.category) %>%
+            results_all() %>% as.data.frame()
     }
+    results$acl <- NULL # Remove column
+
+    # get barcode of the samples
+    if(data.category %in% c("Clinical","Biospecimen")) {
+        pat <- paste("TCGA-[:alnum:]{2}-[:alnum:]{4}",
+                     "TARGET-[:alnum:]{2}-[:alnum:]{6}",sep = "|")
+    } else {
+        pat <- paste("[:alnum:]{4}-[:alnum:]{2}-[:alnum:]{4}-[:alnum:]{3}-[:alnum:]{2,3}-[:alnum:]{4}-[:alnum:]{2}",
+                     "[:alnum:]{6}-[:alnum:]{2}-[:alnum:]{6}-[:alnum:]{3}-[:alnum:]{3}",sep = "|")
+    }
+
+    cases <-  ldply(results$cases, function(x) {
+        x <- cbind(x,x$demographic)
+        x$demographic <- NULL
+        x <- cbind(x,x$project)
+        x$project <- NULL
+        x <- cbind(x,paste(na.omit(unlist(unlist(str_extract_all(unlist(x$samples[[1]]$portions),pat))),collapse = ",")))
+        x$samples <- NULL
+        return(x)
+    })
+
+    results <- cbind(cases,results)
+    results$cases <- NULL
+
+
+    barcodes <- unlist(lapply(results$portions,function(x) {
+        str <- str_extract_all(x,pat) %>% unlist %>% paste(collapse = ",")
+        ifelse(all(is.na(str)), NA,str[!is.na(str)])
+    }))
+
+    results$portions <- NULL
+    results$cases <- barcodes
     if(is.null(dim(results))) {
         message("Sorry! There is no result for your query. Please check in GDC the data available")
         return (NULL)
@@ -206,22 +226,13 @@ GDCquery <- function(project,
         }
     }
 
-    # Filter by data.type
-    if(!is.na(data.type)) {
-        if(!(tolower(data.type) %in% tolower(results$data_type))) {
-            stop("Please set a valid data.type argument from the list below:\n  => ", paste(unique(results$data_type), collapse = "\n  => "))
-        }
-        message("ooo By data.type")
-        results <- results[tolower(results$data_type) %in% tolower(data.type),]
-    }
-
     # Filter by workflow.type
     if(!is.na(workflow.type)) {
-        if(!(workflow.type %in% results$analysis_workflow_type)) {
-            stop("Please set a valid workflow.type argument from the list below:\n  => ", paste(unique(results$analysis_workflow_type), collapse = "\n  => "))
+        if(!(workflow.type %in% results$workflow_type)) {
+            stop("Please set a valid workflow.type argument from the list below:\n  => ", paste(unique(results$workflow_type), collapse = "\n  => "))
         }
         message("ooo By workflow.type")
-        results <- results[results$analysis_workflow_type %in% workflow.type,]
+        results <- results[results$workflow_type %in% workflow.type,]
     }
 
 
@@ -255,23 +266,6 @@ GDCquery <- function(project,
         results <- results[idx,]
     }
 
-    # get barcode of the samples
-    if(data.category %in% c("Clinical","Biospecimen")) {
-        pat <- paste("TCGA-[:alnum:]{2}-[:alnum:]{4}",
-                     "TARGET-[:alnum:]{2}-[:alnum:]{6}",sep = "|")
-    } else {
-        pat <- paste("[:alnum:]{4}-[:alnum:]{2}-[:alnum:]{4}-[:alnum:]{3}-[:alnum:]{2,3}-[:alnum:]{4}-[:alnum:]{2}",
-                     "[:alnum:]{6}-[:alnum:]{2}-[:alnum:]{6}-[:alnum:]{3}-[:alnum:]{3}",sep = "|")
-    }
-
-    barcodes <- unlist(lapply(results$cases,function(x) {
-        str <- str_extract_all(x,pat) %>% unlist %>% paste(collapse = ",")
-        ifelse(all(is.na(str)), NA,str[!is.na(str)])
-    }))
-
-
-    results$cases <- barcodes
-    results$tissue.definition <- expandBarcodeInfo(barcodes)$tissue.definition
 
     # Filter by barcode
     if(!any(is.na(barcode))) {
@@ -281,10 +275,10 @@ GDCquery <- function(project,
             print(knitr::kable(results$cases,col.names = "Available barcodes"))
             stop("None of the barcodes were matched. Available barcodes are above")
         }
-
         results <- results[idx,]
     }
     # Filter by sample.type
+    results$tissue.definition <- expandBarcodeInfo(results$cases)$tissue.definition
     if(!any(is.na(sample.type))) {
         if(!any(tolower(results$tissue.definition) %in% tolower(sample.type))) {
             aux <- as.data.frame(table(results$tissue.definition))
@@ -332,39 +326,6 @@ GDCquery <- function(project,
     return(ret)
 }
 
-getGDCquery <- function(project, data.category, data.type, legacy){
-    # Get manifest using the API
-    baseURL <- ifelse(legacy,"https://gdc-api.nci.nih.gov/legacy/files/?","https://gdc-api.nci.nih.gov/files/?")
-    options.pretty <- "pretty=true"
-    if(data.category == "Protein expression" & legacy) {
-        options.expand <- "expand=cases.samples.portions,cases.project,center,analysis"
-    } else if(data.category %in% c("Clinical","Biospecimen")) {
-        options.expand <- "expand=cases,cases.project,center,analysis"
-    } else {
-        options.expand <- "expand=cases.samples.portions.analytes.aliquots,cases.project,center,analysis"
-    }
-    option.size <- paste0("size=",getNbFiles(project,data.category,legacy))
-    option.format <- paste0("format=JSON")
-    if(is.na(data.type)){
-        options.filter <- paste0("filters=",
-                                 URLencode('{"op":"and","content":[{"op":"in","content":{"field":"cases.project.project_id","value":["'),
-                                 project,
-                                 URLencode('"]}},{"op":"in","content":{"field":"files.data_category","value":["'),
-                                 URLencode(data.category),
-                                 URLencode('"]}}]}'))
-    } else {
-        options.filter <- paste0("filters=",
-                                 URLencode('{"op":"and","content":[{"op":"in","content":{"field":"cases.project.project_id","value":["'),
-                                 project,
-                                 URLencode('"]}},{"op":"in","content":{"field":"files.data_category","value":["'),
-                                 URLencode(data.category),
-                                 URLencode('"]}},{"op":"in","content":{"field":"files.data_type","value":["'),
-                                 URLencode(data.type),
-                                 URLencode('"]}}]}'))
-    }
-    url <- paste0(baseURL,paste(options.pretty, options.expand,option.size, options.filter, option.format, sep = "&"))
-    return(url)
-}
 
 expandBarcodeInfo <- function(barcode){
     if(any(grepl("TARGET",barcode))) {
