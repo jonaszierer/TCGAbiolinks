@@ -167,34 +167,22 @@ GDCquery <- function(project,
 
     # get barcode of the samples
     if(data.category %in% c("Clinical","Biospecimen")) {
-        pat <- paste("TCGA-[:alnum:]{2}-[:alnum:]{4}",
-                     "TARGET-[:alnum:]{2}-[:alnum:]{6}",sep = "|")
+        cases <-  ldply(results$cases, function(x) {
+            x$submitter_id
+        })
     } else {
         pat <- paste("[:alnum:]{4}-[:alnum:]{2}-[:alnum:]{4}-[:alnum:]{3}-[:alnum:]{2,3}-[:alnum:]{4}-[:alnum:]{2}",
                      "[:alnum:]{6}-[:alnum:]{2}-[:alnum:]{6}-[:alnum:]{3}-[:alnum:]{3}",sep = "|")
+        cases <-  ldply(results$cases, function(x) {
+            paste(na.omit(unlist(unlist(str_extract_all(unlist(x$samples),pat)))),collapse = ",")
+        })
+
     }
-
-    cases <-  ldply(results$cases, function(x) {
-        x <- cbind(x,x$demographic)
-        x$demographic <- NULL
-        x <- cbind(x,x$project)
-        x$project <- NULL
-        x <- cbind(x,paste(na.omit(unlist(unlist(str_extract_all(unlist(x$samples[[1]]$portions),pat))),collapse = ",")))
-        x$samples <- NULL
-        return(x)
-    })
-
-    results <- cbind(cases,results)
+    cases <- cases$V1
     results$cases <- NULL
+    results <- cbind(results,cases)
 
 
-    barcodes <- unlist(lapply(results$portions,function(x) {
-        str <- str_extract_all(x,pat) %>% unlist %>% paste(collapse = ",")
-        ifelse(all(is.na(str)), NA,str[!is.na(str)])
-    }))
-
-    results$portions <- NULL
-    results$cases <- barcodes
     if(is.null(dim(results))) {
         message("Sorry! There is no result for your query. Please check in GDC the data available")
         return (NULL)
@@ -334,6 +322,8 @@ expandBarcodeInfo <- function(barcode){
                          case.unique.id = substr(barcode, 11, 16),
                          tissue.code = substr(barcode, 18, 19),
                          nucleic.acid.code = substr(barcode, 24, 24))
+        idx <- which(str_length(barcode) > 28)
+        if(length(idx) > 0)  ret[idx,c(2:4)] <- NA
         ret <- merge(ret,getBarcodeDefinition(), by = "tissue.code", sort = FALSE, all.x = TRUE)
         ret <- ret[match(barcode,ret$barcode),]
     }
@@ -342,6 +332,8 @@ expandBarcodeInfo <- function(barcode){
                           patient = substr(barcode, 1, 12),
                           sample = substr(barcode, 1, 16),
                           tissue.code = substr(barcode, 14, 15))
+        idx <- which(str_length(barcode) > 28)
+        if(length(idx) > 0)  ret[idx,c(2:4)] <- NA
         ret <- merge(ret,getBarcodeDefinition(), by = "tissue.code", sort = FALSE, all.x = TRUE)
         ret <- ret[match(barcode,ret$barcode),]
     }
