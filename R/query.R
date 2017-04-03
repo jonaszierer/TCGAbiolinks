@@ -167,7 +167,7 @@ GDCquery <- function(project,
 
     # get barcode of the samples
     if(data.category %in% c("Clinical","Biospecimen")) {
-        cases <-  ldply(results$cases, function(x) {
+        cases <-  plyr::ldply(results$cases, function(x) {
             x$submitter_id
         })
     } else {
