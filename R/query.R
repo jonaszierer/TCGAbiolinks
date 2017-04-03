@@ -152,18 +152,14 @@ GDCquery <- function(project,
                  "analysis",
                  "center","analysis",
                  "cases.demographic")
-    results <- files(legacy = legacy) %>%
-        expand(expands)
-    if(!is.na(data.type)){
-        results <- results %>% GenomicDataCommons::filter( ~ cases.project.project_id %in% project &
-                                                               data_category == data.category &
-                                                               data_type ==  data.type)  %>%
-            results_all() %>% as.data.frame()
-    } else {
-        results <- results %>% GenomicDataCommons::filter( ~ cases.project.project_id %in% project &
-                                                               data_category == data.category) %>%
-            results_all() %>% as.data.frame()
-    }
+    results <- files(legacy = legacy) %>% expand(expands)  %>%
+        GenomicDataCommons::filter( ~ cases.project.project_id %in% project &
+                                        data_category == data.category)
+
+    if(!is.na(data.type)) results <- results %>% GenomicDataCommons::filter( ~ data_type ==  data.type)
+    if(!is.na(workflow.type)) results <- results %>% GenomicDataCommons::filter( ~ analysis.workflow_type ==  workflow.type)
+
+    results <- results %>% results_all() %>% as.data.frame()
     results$acl <- NULL # Remove column
 
     # get barcode of the samples
