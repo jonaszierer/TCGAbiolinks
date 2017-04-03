@@ -77,6 +77,7 @@ Imports:
     parmigene,
     matlab,
     circlize,
+    BiocParallel,
     ggrepel (>= 0.6.3)
 Description: The aim of TCGAbiolinks is : i) facilitate the TCGA open-access
     data retrieval, ii) prepare the data using the appropriate pre-processing
