@@ -76,6 +76,7 @@
 #'                   barcode = c("TCGA-OR-A5LR-01A-11D-A29H-01"))
 #' @return A data frame with the results and the parameters used
 #' @importFrom  jsonlite fromJSON
+#' @importFrom plyr ldply
 #' @import GenomicDataCommons
 #' @importFrom knitr kable
 #' @importFrom httr timeout
@@ -167,7 +168,7 @@ GDCquery <- function(project,
 
     # get barcode of the samples
     if(data.category %in% c("Clinical","Biospecimen")) {
-        cases <-  plyr::ldply(results$cases, function(x) {
+        cases <-  ldply(results$cases, function(x) {
             x$submitter_id
         })
     } else {
